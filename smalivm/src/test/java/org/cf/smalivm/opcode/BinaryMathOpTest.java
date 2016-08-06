@@ -1,17 +1,11 @@
 package org.cf.smalivm.opcode;
 
-import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 import gnu.trove.map.TIntObjectMap;
 import gnu.trove.map.hash.TIntObjectHashMap;
 
+import org.cf.smalivm.ExceptionFactory;
 import org.cf.smalivm.VMState;
 import org.cf.smalivm.VMTester;
-import org.cf.smalivm.VirtualException;
 import org.cf.smalivm.VirtualMachine;
 import org.cf.smalivm.context.ExecutionNode;
 import org.cf.smalivm.context.MethodState;
@@ -29,6 +23,13 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.runners.Enclosed;
 import org.junit.runner.RunWith;
+
+import static org.junit.Assert.assertEquals;
+import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @RunWith(Enclosed.class)
 public class BinaryMathOpTest {
@@ -406,7 +407,7 @@ public class BinaryMathOpTest {
         }
 
         @Test
-        public void canDivIntWithCatchWithUnkownValueVisitsExceptionHandler() {
+        public void canDivIntWithCatchWithUnknownValueVisitsExceptionHandler() {
             initial.setRegisters(0, new UnknownValue(), "I", 1, 5, "I");
             int[] expected = new int[] { 0, 2, 3, 4 };
 
@@ -918,8 +919,7 @@ public class BinaryMathOpTest {
             op = opFactory.create(location, addressToLocation, vm);
             op.execute(node, mState);
 
-            VirtualException expectedException = new VirtualException(ArithmeticException.class, "/ by zero");
-            VMTester.verifyExceptionHandling(expectedException, node, mState);
+            VMTester.verifyExceptionHandling(ArithmeticException.class, "/ by zero", node, mState);
         }
 
         @Test
@@ -932,8 +932,7 @@ public class BinaryMathOpTest {
             op = opFactory.create(location, addressToLocation, vm);
             op.execute(node, mState);
 
-            VirtualException expectedException = new VirtualException(ArithmeticException.class, "/ by zero");
-            VMTester.verifyExceptionHandling(expectedException, node, mState);
+            VMTester.verifyExceptionHandling(ArithmeticException.class, "/ by zero", node, mState);
         }
 
         @Test
@@ -947,8 +946,7 @@ public class BinaryMathOpTest {
             op = opFactory.create(location, addressToLocation, vm);
             op.execute(node, mState);
 
-            VirtualException expectedException = new VirtualException(ArithmeticException.class, "/ by zero");
-            VMTester.verifyExceptionHandling(expectedException, node, mState);
+            VMTester.verifyExceptionHandling(ArithmeticException.class, "/ by zero", node, mState);
         }
 
         @Test
@@ -978,8 +976,7 @@ public class BinaryMathOpTest {
             op = opFactory.create(location, addressToLocation, vm);
             op.execute(node, mState);
 
-            VirtualException expectedException = new VirtualException(ArithmeticException.class, "/ by zero");
-            VMTester.verifyExceptionHandling(expectedException, node, mState);
+            VMTester.verifyExceptionHandling(ArithmeticException.class, "/ by zero", node, mState);
         }
 
         @Before
@@ -989,6 +986,9 @@ public class BinaryMathOpTest {
             node = mock(ExecutionNode.class);
             location = mock(MethodLocation.class);
             when(location.getCodeAddress()).thenReturn(ADDRESS);
+
+            ExceptionFactory exceptionFactory = mock(ExceptionFactory.class);
+            when(vm.getExceptionFactory()).thenReturn(exceptionFactory);
 
             addressToLocation = new TIntObjectHashMap<MethodLocation>();
             addressToLocation.put(ADDRESS, location);

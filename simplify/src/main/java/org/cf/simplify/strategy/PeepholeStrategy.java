@@ -1,15 +1,5 @@
 package org.cf.simplify.strategy;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-
 import org.cf.simplify.ConstantBuilder;
 import org.cf.simplify.ExecutionGraphManipulator;
 import org.cf.smalivm.context.ExecutionContext;
@@ -36,11 +26,22 @@ import org.jf.dexlib2.writer.builder.BuilderTypeReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
 public class PeepholeStrategy implements OptimizationStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(PeepholeStrategy.class.getSimpleName());
 
-    private static final String ClassForNameSignature = "Ljava/lang/Class;->forName(Ljava/lang/String;)Ljava/lang/Class;";
+    private static final String ClassForNameSignature =
+            "Ljava/lang/Class;->forName(Ljava/lang/String;)Ljava/lang/Class;";
 
     private final ExecutionGraphManipulator manipulator;
     private int peepCount;
@@ -56,7 +57,7 @@ public class PeepholeStrategy implements OptimizationStrategy {
 
     @Override
     public Map<String, Integer> getOptimizationCounts() {
-        Map<String, Integer> counts = new HashMap<String, Integer>();
+        Map<String, Integer> counts = new HashMap<>();
         counts.put("peephole optmizations", peepCount);
         counts.put("constantized ifs", constantIfCount);
 
@@ -89,7 +90,7 @@ public class PeepholeStrategy implements OptimizationStrategy {
         String smaliClassName = ClassNameUtils.binaryToInternal(javaClassName);
         HeapItem klazz = manipulator.getRegisterConsensus(address, MethodState.ResultRegister);
         if (klazz == null) {
-            log.warn("Optimizing Class.forName of potentially non-existant class: {}", smaliClassName);
+            log.warn("Optimizing Class.forName of potentially non-existent class: {}", smaliClassName);
         }
         BuilderTypeReference classRef = manipulator.getDexBuilder().internTypeReference(smaliClassName);
         BuilderInstruction constClassInstruction = new BuilderInstruction21c(Opcode.CONST_CLASS, register, classRef);
@@ -108,15 +109,14 @@ public class PeepholeStrategy implements OptimizationStrategy {
 
         // Heap item at address would have been recast. Need to examine parents.
         // Also, don't care about values. Just collecting types.
-        Set<String> ancestorTypes = new HashSet<String>();
+        Set<String> ancestorTypes = new HashSet<>();
         for (int parentAddress : manipulator.getParentAddresses(address)) {
-            for (HeapItem item : manipulator.getRegisterItems(parentAddress, registerA)) {
-                ancestorTypes.add(item.getType());
-            }
+            ancestorTypes.addAll(manipulator.getRegisterItems(parentAddress, registerA).stream().map(HeapItem::getType)
+                                         .collect(Collectors.toList()));
         }
 
         if (ancestorTypes.size() > 1) {
-            // More than one type. At least one item was cast.
+            // More than one ancestor. At least one item was cast.
             return false;
         }
 
@@ -126,15 +126,15 @@ public class PeepholeStrategy implements OptimizationStrategy {
         } else {
             // check-cast is first op with no parents
             // this implies it's acting on a parameter register
-            // look at freshly spawned execution context type
-            ExecutionContext ectx = manipulator.getVM().spawnRootExecutionContext(manipulator.getMethod());
-            HeapItem item = ectx.getMethodState().peekRegister(registerA);
+            // look at freshly spawned execution context class
+            ExecutionContext context = manipulator.getVM().spawnRootContext(manipulator.getMethod());
+            HeapItem item = context.getMethodState().peekRegister(registerA);
             preCastType = item.getType();
         }
 
         String referenceType = ReferenceUtil.getReferenceString(original.getReference());
         if (!preCastType.equals(referenceType)) {
-            // Item was cast to new type
+            // Item was cast to new class
             return false;
         }
 
@@ -188,12 +188,12 @@ public class PeepholeStrategy implements OptimizationStrategy {
     }
 
     List<Integer> getValidAddresses(ExecutionGraphManipulator manipulator) {
-        return IntStream.of(manipulator.getAddresses()).boxed().filter(a -> manipulator.wasAddressReached(a))
-                        .collect(Collectors.toList());
+        return IntStream.of(manipulator.getAddresses()).boxed().filter(manipulator::wasAddressReached)
+                       .collect(Collectors.toList());
     }
 
     void peepCheckCast() {
-        List<Integer> peepAddresses = addresses.stream().filter(a -> canPeepCheckCast(a)).collect(Collectors.toList());
+        List<Integer> peepAddresses = addresses.stream().filter(this::canPeepCheckCast).collect(Collectors.toList());
         if (0 == peepAddresses.size()) {
             return;
         }
@@ -209,8 +209,8 @@ public class PeepholeStrategy implements OptimizationStrategy {
     }
 
     void peepClassForName() {
-        List<Integer> peepAddresses = addresses.stream().filter(a -> canPeepClassForName(a))
-                        .collect(Collectors.toList());
+        List<Integer> peepAddresses =
+                addresses.stream().filter(this::canPeepClassForName).collect(Collectors.toList());
         if (0 == peepAddresses.size()) {
             return;
         }
@@ -236,15 +236,15 @@ public class PeepholeStrategy implements OptimizationStrategy {
     }
 
     void peepConstantPredicate() {
-        List<Integer> peepAddresses = new LinkedList<Integer>();
-        Set<Integer> nextAddresses = new HashSet<Integer>();
+        List<Integer> peepAddresses = new LinkedList<>();
+        Set<Integer> nextAddresses = new HashSet<>();
         for (int address : addresses) {
             BuilderInstruction original = manipulator.getInstruction(address);
             if (!(original instanceof Instruction22t || original instanceof Instruction21t)) {
                 continue;
             }
 
-            Set<ExecutionNode> children = new HashSet<ExecutionNode>();
+            Set<ExecutionNode> children = new HashSet<>();
             List<ExecutionNode> pile = manipulator.getNodePile(address);
             for (ExecutionNode node : pile) {
                 children.addAll(node.getChildren());
@@ -289,7 +289,7 @@ public class PeepholeStrategy implements OptimizationStrategy {
     }
 
     void peepStringInit() {
-        List<Integer> peepAddresses = addresses.stream().filter(a -> canPeepStringInit(a)).collect(Collectors.toList());
+        List<Integer> peepAddresses = addresses.stream().filter(this::canPeepStringInit).collect(Collectors.toList());
         if (0 == peepAddresses.size()) {
             return;
         }
@@ -304,7 +304,7 @@ public class PeepholeStrategy implements OptimizationStrategy {
             int instanceRegister = instr.getRegisterC();
             HeapItem item = manipulator.getRegisterConsensus(address, instanceRegister);
             BuilderInstruction replacement = ConstantBuilder.buildConstant(item.getValue(), item.getUnboxedType(),
-                            instanceRegister, manipulator.getDexBuilder());
+                    instanceRegister, manipulator.getDexBuilder());
             if (log.isDebugEnabled()) {
                 log.debug("Peeping string init @{} {}", address, manipulator.getOp(address));
             }

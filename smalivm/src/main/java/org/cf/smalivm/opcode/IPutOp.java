@@ -21,7 +21,7 @@ public class IPutOp extends ExecutionContextOp {
     private final VirtualMachine vm;
 
     IPutOp(MethodLocation location, MethodLocation child, int valueRegister, int instanceRegister,
-                    String fieldDescriptor, VirtualMachine vm) {
+           String fieldDescriptor, VirtualMachine vm) {
         super(location, child);
 
         this.valueRegister = valueRegister;
@@ -31,8 +31,8 @@ public class IPutOp extends ExecutionContextOp {
     }
 
     @Override
-    public void execute(ExecutionNode node, ExecutionContext ectx) {
-        MethodState mState = ectx.getMethodState();
+    public void execute(ExecutionNode node, ExecutionContext context) {
+        MethodState mState = context.getMethodState();
         HeapItem valueItem = mState.readRegister(valueRegister);
         HeapItem instanceItem = mState.readRegister(instanceRegister);
 
@@ -46,11 +46,7 @@ public class IPutOp extends ExecutionContextOp {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder(getName());
-        sb.append(" r").append(valueRegister).append(", r").append(instanceRegister).append(", ")
-                        .append(fieldDescriptor);
-
-        return sb.toString();
+        return getName() + " r" + valueRegister + ", r" + instanceRegister + ", " + fieldDescriptor;
     }
 
 }

@@ -4,7 +4,6 @@ import java.util.HashSet;
 import java.util.Set;
 
 import org.cf.smalivm.SideEffect;
-import org.cf.smalivm.VirtualException;
 import org.jf.dexlib2.builder.BuilderInstruction;
 import org.jf.dexlib2.builder.MethodLocation;
 
@@ -12,7 +11,7 @@ public abstract class Op {
 
     private final MethodLocation location;
     private final MethodLocation[] children;
-    private final Set<VirtualException> exceptions;
+    private final Set<Throwable> exceptions;
 
     Op(MethodLocation location, MethodLocation child) {
         this(location, new MethodLocation[] { child });
@@ -21,7 +20,7 @@ public abstract class Op {
     Op(MethodLocation location, MethodLocation[] children) {
         this.location = location;
         this.children = children;
-        exceptions = new HashSet<VirtualException>();
+        exceptions = new HashSet<>();
     }
 
     public final int getAddress() {
@@ -32,7 +31,7 @@ public abstract class Op {
         return children;
     }
 
-    public Set<VirtualException> getExceptions() {
+    public Set<Throwable> getExceptions() {
         return exceptions;
     }
 
@@ -60,7 +59,7 @@ public abstract class Op {
     @Override
     public abstract String toString();
 
-    void addException(VirtualException exception) {
+    void addException(Throwable exception) {
         exceptions.add(exception);
     }
 

@@ -1,15 +1,14 @@
-Simplify
-========
+# Simplify
 
 [![Build Status](https://travis-ci.org/CalebFenton/simplify.svg?branch=master)](https://travis-ci.org/CalebFenton/simplify) [![Coverage Status](https://img.shields.io/coveralls/CalebFenton/simplify.svg)](https://coveralls.io/r/CalebFenton/simplify) [![Coverity Scan Build Status](https://img.shields.io/coverity/scan/7022.svg)](https://scan.coverity.com/projects/calebfenton-simplify)
 
-Generic Android Deobfuscator
-----------------------------
+## Generic Android Deobfuscator
 
-Simplify uses a virtual machine to execute an app and understand what it does. Then, it applies optimizations to create code that behaves identically but is easier for a human to understand. It is a _generic_ deobfuscator because it doesn't need any special configuration or code for different types of obfuscation.
+Simplify virtually executes an app to understand its behavior and then tries to optimize the code so that it behaves identically but is easier for a human to understand. Each optimization type is simple and generic, so it doesn't matter what the specific type of obfuscation is used.
 
 ### Before and After
 
+The code on the left is a decompilation of an obfuscated app, and the code on the right has been deobfuscated.
 <section>
 <p align="center">
 <img src="https://cloud.githubusercontent.com/assets/1356658/5331911/1e790c86-7df4-11e4-91e7-aba1d2c63b98.png" alt="Lots of method calls, no clear meaning" height="380px" align="center" />
@@ -17,56 +16,145 @@ Simplify uses a virtual machine to execute an app and understand what it does. T
 </p>
 </section>
 
-There are three parts to the project:
+## Overview
 
-1. **smalivm**: Creates a context sensitive control flow graph of a method by executing each instruction. The value of all classes and registers is recorded at every execution of every instruction. It doesn't need to know the arguments for a method to execute it as it handles unknown values. Also, it executes every possible path. For example, if an `if` could be `true` or `false` because it references an unknown value, it assumes both could happen and executes both paths.
-2. **simplify**: Takes the graphs from **smalivm** and applies optimizations such as constant propagation, dead code removal, unreflection, and  specific peephole optimizations.
-3. **demoapp**: Contains simple, heavily commented examples of how to use **smalivm**.
+There are three parts to the project: smalivm, simplify, and the demo app.
 
+1. **smalivm**: Virtual machine library which can execute Android apps. It executes a method and returns a graph which contains the register and class values at every instruction for every possible execution path. It works even if certain values are unknown such as a network response from a server. If it encounters an `if` and doesn't know the values of the conditional, it assumes either branch could happen and executes both paths.
+2. **simplify**: Analyzes the graphs from **smalivm** and applies optimizations such as constant propagation, dead code removal, unreflection, and specific peephole optimizations. The optimizations are fairly simple, but when applied together and in succession, it can decrypt strings, peel back layers of obfuscation, and greatly simplify code.
+3. **demoapp**: Contains simple, heavily commented examples of how to use **smalivm**. It's a good place to start if you want to use smalivm in your own projects.
 
-Building
---------
+## Usage
 
-Because this project contains submodules, either clone with `--recursive`:
+```
+usage: java -jar simplify.jar <input> [options]
+deobfuscates a dalvik executable
+ -et,--exclude-types <pattern>   Exclude classes and methods which include REGEX, eg: "com/android", applied after include-types
+ -h,--help                       Display this message
+    --include-support            Attempt to execute and optimize classes in Android support library packages, default: false
+ -it,--include-types <pattern>   Limit execution to classes and methods which include REGEX, eg: ";->targetMethod\("
+    --max-address-visits <N>     Give up executing a method after visiting the same address N times, limits loops, default: 10000
+    --max-call-depth <N>         Do not call methods after reaching a call depth of N, limits recursion and long method chains, default:
+                                 50
+    --max-execution-time <N>     Give up executing a method after N seconds, default: 300
+    --max-method-vists <N>       Give up executing a method after executing N instructions in that method, default: 1000000
+    --max-passes <N>             Do not run optimizers on a method more than N times, default: 100
+ -o,--output <file>              Output simplified input to FILE
+    --output-api-level <LEVEL>   Set output DEX API compatibility to LEVEL, default: 15
+ -q,--quiet                      Be quiet
+    --remove-weak                Remove code even if there are weak side effects, default: true
+ -v,--verbose <LEVEL>            Set verbosity to LEVEL, default: 0
+```
 
-`git clone --recursive https://github.com/CalebFenton/simplify.git`
+## Building
+
+Because this project contains submodules for Android frameworks, either clone with `--recursive`:
+
+```bash
+git clone --recursive https://github.com/CalebFenton/simplify.git
+```
 
 Or update submodules at any time with:
 
-`git submodule update --init --recursive`
+```bash
+git submodule update --init --recursive
+```
 
 Then, to build a single jar:
 
-`./gradlew fatjar`
+```bash
+./gradlew fatjar
+```
 
-The Simplify jar will be in `simplify/build/libs/simplify.jar`
+The Simplify jar will be in `simplify/build/libs/simplify.jar`. You can test it's working by simplifying the obfuscated-example app:
 
-You can test it's working with: `java -jar simplify/build/libs/simplify.jar -it 'org/cf' simplify/obfuscated-example`
+```bash
+java -jar simplify/build/libs/simplify.jar -it 'org/cf' simplify/obfuscated-example
+```
 
-Troubleshooting
----------------
+## Troubleshooting
 
 Simplify is in early stages of development. If you encounter a failure, try these recommendations, in order:
 
 1. Include only a few methods or classes with `-it`.
 2. If failure is because of maximum visits exceeded, try using higher `--max-address-visits`, `--max-call-depth`, and `--max-method-visits`.
 3. Try with `-v` or `-v 2` and report the issue with the logs.
-4. Try again, but do not break eye contact. Simpify can sense fear.
+4. Try again, but do not break eye contact. Simplify can sense fear.
 
-Reporting Issues
-----------------
+## Contributing
 
-1. If possible, include a link the APK or DEX. If you can't share the sample, please include either the SHA1 or MD5 checksum.
-2. Include the full command used.
-3. *Optional*: Include verbose logs.
+Don't be shy. I think virtual execution and deobfuscation are fascinating problems. Anyone who's interested is automatically cool and contributions are welcome, even if it's just to fix a typo. Feel free to ask questions in the issues and submit pull requests.
 
-Contributing
-------------
-Just submit a pull request. We can review and talk through it there.
+### Reporting Issues
 
-Optimization Example
---------------------
+Please include a link to the APK or DEX and the full command you're using. This makes it much easier to reproduce (and thus _fix_) your issue.
+
+If you can't share the sample, please include the file hash (sha1, sha256, etc).
+
+## Optimization Strategies
+
+### Constant Propagation
+
+If an op places a value of a type which can be turned into a constant such as a string, number, or boolean, this optimization will replace that op with the constant. For example:
+
+```smali
+const-string v0, "VGVsbCBtZSBvZiB5b3VyIGhvbWV3b3JsZCwgVXN1bC4="
+invoke-static {v0}, Lmy/string/Decryptor;->decrypt(Ljava/lang/String;)Ljava/lang/String;
+# Decrypts to: "Tell me of your homeworld, Usul."
+move-result v0
+```
+
+In this example, an encrypted string is decrypted and placed into `v0`. Since strings are "constantizable", the `move-result v0` can be replaced with a `const-string`:
+
+```smali
+const-string v0, "VGVsbCBtZSBvZiB5b3VyIGhvbWV3b3JsZCwgVXN1bC4="
+invoke-static {v0}, Lmy/string/Decryptor;->decrypt(Ljava/lang/String;)Ljava/lang/String;
+const-string v0, "Tell me of your homeworld, Usul."
+```
+
+### Dead Code Removal
+
+Code is dead if removing it cannot possibly alter the behavior of the app. The most obvious case is if the code is unreachable, e.g. `if (false) { // dead }`). If code is reachable, it may be considered dead if it doesn't affect any state outside of the method, i.e. it has no _side effect_. For example, code may not affect the return value for the method, alter any class variables, or perform any IO. This is a difficult to determine in static analysis. Luckily, smalivm doesn't have to be clever. It just stupidly executes everything it can and assumes there are side effects if it can't be sure. Consider the example from Constant Propagation:
+
+```smali
+const-string v0, "VGVsbCBtZSBvZiB5b3VyIGhvbWV3b3JsZCwgVXN1bC4="
+invoke-static {v0}, Lmy/string/Decryptor;->decrypt(Ljava/lang/String;)Ljava/lang/String;
+const-string v0, "Tell me of your homeworld, Usul."
+```
+
+In this code, the `invoke-static` no longer affects the return value of the method and let's assume it doesn't do anything weird like write bytes to the file system or a network socket so it has no side effects. It can simply be removed.
+
+```smali
+const-string v0, "VGVsbCBtZSBvZiB5b3VyIGhvbWV3b3JsZCwgVXN1bC4="
+const-string v0, "Tell me of your homeworld, Usul."
+```
+
+Finally, the first `const-string` assigns a value to a register, but that value is never used, i.e. the assignment is dead. It can also be removed.
+
+```smali
+const-string v0, "Tell me of your homeworld, Usul."
+```
+
+Huzzah!
+
+### Unreflection
+
+One major challenge with static analysis of Java is reflection. It's just not possible to know the arguments are for reflection methods without doing careful data flow analysis. There are smart, clever ways of doing this, but smalivm does it by just executing the code. When it finds a reflected method invocation such as:
+
+```smali
+invoke-virtual {v0, v1, v2}, Ljava/lang/reflect/Method;->invoke(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;
+```
+
+It can know the values of `v0`, `v1`, and `v2`. If it's sure what the values are, it can replace the call to `Method.invoke()` with an actual non-reflected method invocation. The same applies for reflected field and class lookups.
+
+### Peephole
+
+For everything that doesn't fit cleanly into a particular category, there's peephole optimizations. This includes removing useless `check-cast` ops, replacing `Ljava/lang/String;-><init>` calls with `const-string`, and so on.
+
+## Deobfuscation Example
+
 ### Before Optimization
+
 ```smali
 .method public static test1()I
     .locals 2
@@ -85,6 +173,7 @@ Optimization Example
 All this does is `v0 = 1`.
 
 ### After Constant Propagation
+
 ```smali
 .method public static test1()I
     .locals 2
@@ -106,7 +195,8 @@ The `move-result v0` is replaced with `const/4 v0, 0x1`. This is because there i
 * strings - `const-string`
 * classes - `const-class`
 
-###After Dead Code Removal
+### After Dead Code Removal
+
 ```smali
 .method public static test1()I
     .locals 2
@@ -117,16 +207,24 @@ The `move-result v0` is replaced with `const/4 v0, 0x1`. This is because there i
 .end method
 ```
 
-Because the code above `const/4 v0, 0x1` does not affect state outside of the method (no side-effects) it can be removed without changing behavior. If there was a method call that wrote something to the file system or network, it couldn't be removed because it affects state outside the method. Or if `test()I` took a mutable argument, such as a `LinkedList`, any instructions that accessed it couldn't be considered dead.
+Because the code above `const/4 v0, 0x1` does not affect state outside of the method (no side-effects), it can be removed without changing behavior. If there was a method call that wrote something to the file system or network, it couldn't be removed because it affects state outside the method. Or if `test()I` took a mutable argument, such as a `LinkedList`, any instructions that accessed it couldn't be considered dead.
 
-Some other examples of dead code:
+Other examples of dead code:
 
 * unreferenced assignments - assigning registers and not using them
 * unreached / unreachable instructions - `if (false) { dead_code(); }`
 
+# Further Reading
 
-Related Works
--------------
+* [Dalvik Virtual Execution with SmaliVM](http://calebfenton.github.io/2016/04/30/dalvik-virtual-execution-with-smalivm/)
+
+# License
+
+This tool is available under a dual license: a commercial one suitable for closed source projects and a GPL license that can be used in open source software.
+
+Depending on your needs, you must choose one of them and follow its policies. A detail of the policies and agreements for each license type are available in the [LICENSE.COMMERCIAL](LICENSE.COMMERCIAL) and [LICENSE.GPL](LICENSE.GPL) files.
+
+# Related / Inspirational
 
 * [Guillot, Yoann, and Alexandre Gazet. "Automatic Binary Deobfuscation." Journal in Computer Virology 6.3 (2010): 261-76](http://metasm.cr0.org/docs/sstic09-metasm-jcv.pdf)
 * [Unicorn - The ultimate CPU emulator](http://www.unicorn-engine.org/)

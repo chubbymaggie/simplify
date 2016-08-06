@@ -1,14 +1,14 @@
 package org.cf.smalivm;
 
-import java.lang.reflect.Field;
-
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.cf.smalivm.context.ClassState;
 import org.cf.smalivm.context.ExecutionContext;
 import org.cf.smalivm.context.HeapItem;
-import org.cf.util.ClassNameUtils;
+import org.cf.smalivm.type.VirtualField;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.lang.reflect.Field;
 
 public class StaticFieldAccessor {
 
@@ -20,55 +20,58 @@ public class StaticFieldAccessor {
         this.vm = vm;
     }
 
-    public HeapItem getField(ExecutionContext ectx, String fieldDescriptor) {
-        String[] parts = fieldDescriptor.split("->");
-        String className = parts[0];
-        String fieldNameAndType = parts[1];
-        parts = fieldNameAndType.split(":");
-        String fieldName = parts[0];
-        String fieldType = parts[1];
-
-        HeapItem fieldItem;
-        if (vm.shouldTreatAsLocal(className)) {
-            ClassState cState = ectx.readClassState(className);
-            fieldItem = cState.peekField(fieldNameAndType);
-        } else if (vm.getConfiguration().isSafe(className)) {
-            try {
-                String binaryClassName = ClassNameUtils.internalToBinary(className);
-                Class<?> klazz = Class.forName(binaryClassName);
-                Field field = FieldUtils.getField(klazz, fieldName);
-                Object fieldValue = field.get(null);
-                fieldItem = new HeapItem(fieldValue, fieldType);
-            } catch (ClassNotFoundException | IllegalArgumentException | IllegalAccessException e) {
-                // TODO: medium - throw these exceptions and handle them by setting correct virtual exceptions
-                fieldItem = HeapItem.newUnknown(fieldType);
-                if (log.isWarnEnabled()) {
-                    log.warn("Couldn't access field: {}", fieldDescriptor);
-                }
-                if (log.isDebugEnabled()) {
-                    log.debug("Stack trace:", e);
-                }
-            }
+    public HeapItem getField(ExecutionContext context, VirtualField field) {
+        if (isSafe(field)) {
+            return getSafeField(context, field);
         } else {
-            // Access denied!
-            // TODO: easy - warn here, figure out when it happens
-            fieldItem = HeapItem.newUnknown(fieldType);
+            return getLocalField(context, field);
         }
-
-        return fieldItem;
     }
 
-    public void putField(ExecutionContext ectx, String fieldDescriptor, HeapItem putItem) {
-        String[] parts = fieldDescriptor.split("->");
-        String className = parts[0];
-        String fieldNameAndType = parts[1];
-        if (vm.shouldTreatAsLocal(className)) {
-            ClassState cState = ectx.readClassState(className);
-            cState.assignField(fieldNameAndType, putItem);
-        } else {
+    private HeapItem getLocalField(ExecutionContext context, VirtualField field) {
+        ClassState cState = context.readClassState(field.getDefiningClass());
+
+        return cState.peekField(field);
+    }
+
+    private HeapItem getSafeField(ExecutionContext context, VirtualField field) {
+        String className = field.getDefiningClass().getBinaryName();
+        try {
+            Class<?> klazz = Class.forName(className);
+            Field realField = FieldUtils.getField(klazz, field.getName());
+            Object fieldValue = realField.get(null);
+
+            return new HeapItem(fieldValue, field.getType());
+        } catch (IllegalArgumentException | IllegalAccessException e) {
+            // TODO: medium - throw these exceptions and handle them by setting correct virtual exceptions
             if (log.isWarnEnabled()) {
-                log.warn("Ignoring non-local static assignment: {} = {}", fieldDescriptor, putItem);
+                log.warn("Couldn't access field: {}", field.toString());
             }
+            if (log.isDebugEnabled()) {
+                log.debug("Stack trace:", e);
+            }
+            //e.printStackTrace();
+        } catch (ClassNotFoundException e) {
+            log.warn("Could not find class : {}", className);
+        }
+
+        return HeapItem.newUnknown(field.getType());
+    }
+
+    private boolean isSafe(VirtualField field) {
+        return vm.isSafe(field.getDefiningClass());
+    }
+
+    public void putField(ExecutionContext context, VirtualField field, HeapItem putItem) {
+        if (isSafe(field)) {
+            // TODO: consider enabling this, is it safe?
+            if (log.isWarnEnabled()) {
+                log.warn("Ignoring static assignment of non-local field: {} = {}", field, putItem);
+            }
+        } else {
+            ClassState cState = context.readClassState(field.getDefiningClass());
+            cState.assignField(field, putItem);
         }
     }
+
 }

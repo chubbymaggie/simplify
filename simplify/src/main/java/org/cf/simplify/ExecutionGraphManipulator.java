@@ -1,28 +1,10 @@
 package org.cf.simplify;
 
+import com.google.common.primitives.Ints;
+
 import gnu.trove.list.TIntList;
 import gnu.trove.list.array.TIntArrayList;
 import gnu.trove.map.TIntObjectMap;
-
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.ListIterator;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 import org.cf.smalivm.SideEffect;
 import org.cf.smalivm.VirtualMachine;
@@ -39,7 +21,7 @@ import org.cf.smalivm.opcode.OpCreator;
 import org.cf.smalivm.opcode.ReturnOp;
 import org.cf.smalivm.opcode.ReturnVoidOp;
 import org.cf.smalivm.opcode.SwitchPayloadOp;
-import org.cf.smalivm.reference.LocalMethod;
+import org.cf.smalivm.type.VirtualMethod;
 import org.jf.dexlib2.builder.BuilderInstruction;
 import org.jf.dexlib2.builder.BuilderTryBlock;
 import org.jf.dexlib2.builder.Label;
@@ -49,8 +31,27 @@ import org.jf.dexlib2.writer.builder.DexBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.primitives.Ints;
+import java.lang.reflect.Field;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.ListIterator;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.stream.Collectors;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
+@SuppressWarnings("Convert2streamapi")
 public class ExecutionGraphManipulator extends ExecutionGraph {
 
     @SuppressWarnings("unused")
@@ -58,28 +59,28 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
 
     private final DexBuilder dexBuilder;
     private final MutableMethodImplementation implementation;
-    private final LocalMethod localMethod;
+    private final VirtualMethod method;
     private final VirtualMachine vm;
     private final Set<MethodLocation> recreateLocations;
     private final List<MethodLocation> reexecuteLocations;
     private final OpCreator opCreator;
-    private boolean recreateOrReexecute;
+    private boolean recreateOrExecuteAgain;
 
-    public ExecutionGraphManipulator(ExecutionGraph graph, LocalMethod localMethod, VirtualMachine vm,
-                    DexBuilder dexBuilder) {
+    public ExecutionGraphManipulator(ExecutionGraph graph, VirtualMethod method, VirtualMachine vm,
+                                     DexBuilder dexBuilder) {
         super(graph, true);
 
         this.dexBuilder = dexBuilder;
-        this.localMethod = localMethod;
-        implementation = localMethod.getImplementation();
+        this.method = method;
+        implementation = method.getImplementation();
         this.vm = vm;
         opCreator = getOpCreator(vm, addressToLocation);
-        recreateLocations = new HashSet<MethodLocation>();
+        recreateLocations = new HashSet<>();
 
         // When ops are added, such as when unreflecting, need to execute in order to ensure
         // correct contexts for each op. Executing out of order may read registers that haven't been assigned yet.
-        reexecuteLocations = new LinkedList<MethodLocation>();
-        recreateOrReexecute = true;
+        reexecuteLocations = new LinkedList<>();
+        recreateOrExecuteAgain = true;
     }
 
     public void addInstruction(MethodLocation location, BuilderInstruction instruction) {
@@ -88,11 +89,11 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
         MethodLocation newLocation = instruction.getLocation();
         MethodLocation oldLocation = implementation.getInstructions().get(index + 1).getLocation();
         try {
-            Method m = MethodLocation.class.getDeclaredMethod("mergeInto", MethodLocation.class);
+            java.lang.reflect.Method m = MethodLocation.class.getDeclaredMethod("mergeInto", MethodLocation.class);
             m.setAccessible(true);
             m.invoke(oldLocation, newLocation);
         } catch (Exception e) {
-            log.error("Error invoking MethodLocation#mergeInto(). Wrong dexlib version?", e);
+            log.error("Error invoking MethodLocation.mergeInto(). Wrong dexlib version?", e);
         }
 
         rebuildGraph();
@@ -102,26 +103,23 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
         addInstruction(getLocation(address), newInstruction);
     }
 
-    private int getRegisterCount(int address) {
-        return getNodePile(address).get(0).getContext().getMethodState().getRegisterCount();
-    }
-
     public int[] getAvailableRegisters(int address) {
         int[] registers = new int[getRegisterCount(address)];
         for (int i = 0; i < registers.length; i++) {
             registers[i] = i;
         }
 
-        Deque<ExecutionNode> stack = new ArrayDeque<ExecutionNode>(getChildren(address));
+        Deque<ExecutionNode> stack = new ArrayDeque<>(getChildren(address));
         ExecutionNode node = stack.peek();
         if (null == node) {
             // No children. All registers available!
-            assert getTemplateNode(address).getOp() instanceof ReturnOp || getTemplateNode(address).getOp() instanceof ReturnVoidOp;
+            assert getTemplateNode(address).getOp() instanceof ReturnOp ||
+                   getTemplateNode(address).getOp() instanceof ReturnVoidOp;
             return registers;
         }
 
-        Set<Integer> registersRead = new HashSet<Integer>();
-        Set<Integer> registersAssigned = new HashSet<Integer>();
+        Set<Integer> registersRead = new HashSet<>();
+        Set<Integer> registersAssigned = new HashSet<>();
         while ((node = stack.poll()) != null) {
             MethodState mState = node.getContext().getMethodState();
             for (Integer register : registers) {
@@ -148,7 +146,7 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
     }
 
     public List<ExecutionNode> getChildren(int address) {
-        List<ExecutionNode> children = new ArrayList<ExecutionNode>();
+        List<ExecutionNode> children = new ArrayList<>();
         List<ExecutionNode> nodePile = getNodePile(address);
         for (ExecutionNode node : nodePile) {
             children.addAll(node.getChildren());
@@ -161,14 +159,16 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
         return dexBuilder;
     }
 
-    public @Nullable BuilderInstruction getInstruction(int address) {
+    public
+    @Nullable
+    BuilderInstruction getInstruction(int address) {
         ExecutionNode node = getTemplateNode(address);
 
         return node.getOp().getInstruction();
     }
 
     public int[] getParentAddresses(int address) {
-        Set<Integer> parentAddresses = new HashSet<Integer>();
+        Set<Integer> parentAddresses = new HashSet<>();
         for (ExecutionNode node : getNodePile(address)) {
             ExecutionNode parent = node.getParent();
             if (null == parent) {
@@ -184,6 +184,7 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
         return implementation.getTryBlocks();
     }
 
+    @Override
     public VirtualMachine getVM() {
         return vm;
     }
@@ -204,26 +205,24 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
         Collections.reverse(addresses);
 
         log.debug("Removing instructions: {}", addresses);
-        for (int address : addresses) {
-            removeInstruction(address);
-        }
+        addresses.forEach(this::removeInstruction);
     }
 
     public void replaceInstruction(int insertAddress, BuilderInstruction instruction) {
-        List<BuilderInstruction> instructions = new LinkedList<BuilderInstruction>();
+        List<BuilderInstruction> instructions = new LinkedList<>();
         instructions.add(instruction);
         replaceInstruction(insertAddress, instructions);
     }
 
     public void replaceInstruction(int insertAddress, List<BuilderInstruction> instructions) {
-        recreateOrReexecute = false;
+        recreateOrExecuteAgain = false;
         int address = insertAddress;
         for (BuilderInstruction instruction : instructions) {
             addInstruction(address, instruction);
             address += instruction.getCodeUnits();
         }
         MethodLocation location = getLocation(address);
-        recreateOrReexecute = true;
+        recreateOrExecuteAgain = true;
         removeInstruction(location);
     }
 
@@ -241,6 +240,14 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
         return sb.toString();
     }
 
+    public MethodLocation getLocation(int address) {
+        return addressToLocation.get(address);
+    }
+
+    private int getRegisterCount(int address) {
+        return getNodePile(address).get(0).getContext().getMethodState().getRegisterCount();
+    }
+
     private void addToNodePile(MethodLocation newLocation) {
         // Returns node which need to be re-executed after graph / mappings are rebuilt
         // E.g. branch offset instructions can't be created without accurate mappings
@@ -255,20 +262,21 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
         assert shiftedLocation != null;
 
         List<ExecutionNode> shiftedNodePile = locationToNodePile.get(shiftedLocation);
-        List<ExecutionNode> newNodePile = new ArrayList<ExecutionNode>();
+        List<ExecutionNode> newNodePile = new ArrayList<>();
         locationToNodePile.put(newLocation, newNodePile);
 
         Op shiftedOp = shiftedNodePile.get(0).getOp();
         Op op = opCreator.create(newLocation);
         recreateLocations.add(newLocation);
         reexecuteLocations.add(newLocation);
-        boolean autoAddedPadding = op instanceof NopOp && (shiftedOp instanceof FillArrayDataPayloadOp || shiftedOp instanceof SwitchPayloadOp);
+        boolean autoAddedPadding = op instanceof NopOp && (shiftedOp instanceof FillArrayDataPayloadOp ||
+                                                           shiftedOp instanceof SwitchPayloadOp);
         for (int i = 0; i < shiftedNodePile.size(); i++) {
             ExecutionNode newNode = new ExecutionNode(op);
             newNodePile.add(i, newNode);
 
             if (autoAddedPadding) {
-                // Padding of this type is never reached
+                // Padding of this class is never reached
                 break;
             }
             if (i == TEMPLATE_NODE_INDEX) {
@@ -286,7 +294,7 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
                 recreateLocations.add(shiftedParent.getOp().getLocation());
             } else {
                 assert METHOD_ROOT_ADDRESS == newLocation.getCodeAddress();
-                newContext = vm.spawnRootExecutionContext(localMethod);
+                newContext = vm.spawnRootContext(method);
                 newNode.setContext(newContext);
             }
             reparentNode(shiftedNode, newNode);
@@ -305,7 +313,7 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
     }
 
     private void recreateAndExecute() {
-        if (!recreateOrReexecute) {
+        if (!recreateOrExecuteAgain) {
             return;
         }
 
@@ -339,15 +347,15 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
                 }
             }
 
-            for (int i = 0; i < pile.size(); i++) {
-                pile.get(i).setOp(op);
+            for (ExecutionNode aPile : pile) {
+                aPile.setOp(op);
             }
         }
 
         // Locations with the same address may be added. One is probably being removed. If using a sorted set with an
         // address comparator, it prevents adding multiple locations. This prevents them from executing here.
         Collections.sort(reexecuteLocations, (e1, e2) -> Integer.compare(e1.getCodeAddress(), e2.getCodeAddress()));
-        Set<MethodLocation> reexecute = new LinkedHashSet<MethodLocation>(reexecuteLocations);
+        Set<MethodLocation> reexecute = new LinkedHashSet<>(reexecuteLocations);
         for (MethodLocation location : reexecute) {
             List<ExecutionNode> pile = locationToNodePile.get(location);
             for (int i = 0; i < pile.size(); i++) {
@@ -368,31 +376,24 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
         // This seems like overkill until you realize implementation may change from under us.
         // Multiple new instructions may be added from adding or removing a single instruction.
         Set<MethodLocation> staleLocations = locationToNodePile.keySet();
-        Set<MethodLocation> implementationLocations = new HashSet<MethodLocation>();
-        for (BuilderInstruction instruction : implementation.getInstructions()) {
-            implementationLocations.add(instruction.getLocation());
-        }
+        Set<MethodLocation> implementationLocations =
+                implementation.getInstructions().stream().map(BuilderInstruction::getLocation)
+                        .collect(Collectors.toSet());
 
-        Set<MethodLocation> addedLocations = new HashSet<MethodLocation>(implementationLocations);
+        Set<MethodLocation> addedLocations = new HashSet<>(implementationLocations);
         addedLocations.removeAll(staleLocations);
         for (MethodLocation location : addedLocations) {
             addToNodePile(location);
         }
-        Set<MethodLocation> removedLocations = new HashSet<MethodLocation>(staleLocations);
+        Set<MethodLocation> removedLocations = new HashSet<>(staleLocations);
         removedLocations.removeAll(implementationLocations);
-        for (MethodLocation location : removedLocations) {
-            removeFromNodePile(location);
-        }
+        removedLocations.forEach(this::removeFromNodePile);
 
         TIntObjectMap<MethodLocation> newAddressToLocation = buildAddressToLocation(implementation);
         addressToLocation.clear();
         addressToLocation.putAll(newAddressToLocation);
 
         recreateAndExecute();
-    }
-
-    public MethodLocation getLocation(int address) {
-        return addressToLocation.get(address);
     }
 
     @SuppressWarnings("unchecked")
@@ -446,7 +447,9 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
         }
     }
 
-    private @Nullable MethodLocation getLocation(Label label) {
+    private
+    @Nullable
+    MethodLocation getLocation(Label label) {
         try {
             Field f = Label.class.getDeclaredField("location");
             f.setAccessible(true);
@@ -459,7 +462,7 @@ public class ExecutionGraphManipulator extends ExecutionGraph {
 
     private void removeFromNodePile(MethodLocation location) {
         List<ExecutionNode> nodePile = locationToNodePile.remove(location);
-        Map<MethodLocation, ExecutionNode> locationToChildNodeToRemove = new HashMap<MethodLocation, ExecutionNode>();
+        Map<MethodLocation, ExecutionNode> locationToChildNodeToRemove = new HashMap<>();
         for (ExecutionNode removedNode : nodePile) {
             ExecutionNode parentNode = removedNode.getParent();
             if (parentNode == null) {

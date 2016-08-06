@@ -1,5 +1,32 @@
 # IDEA SCRATCH PAD
 
+* Allow static initialization of fields using literals, e.g. `.field myInt:I = 0x42`
+* Fixed several problems with looking up inherited fields
+* Better merging of states from called methods
+* Better exception handling - implement `throw` and `move-exception`
+* Improved correctness for `instance-of` and `check-cast` ops
+* Improved correctness for `java.lang.reflect.Field.get()` emulated method
+
+
+find all "?" and replace with common type unknkown
+
+
+// TODO: https://github.com/CalebFenton/simplify/issues/8
+add tests and feature for moving exception from parent op
+  move-exception op
+implement the throw op also
+  add some tests
+also fix invoke op for getting graph of invoked method
+  peekThrowRegister() see if it's null
+
+
+run instance-of tests
+can you do primitive instanceof primitive?
+  primitive instance of object? (probably)
+
+add documentation
+
+
 Debugger
   next / previous(!)
   show local code
@@ -28,9 +55,6 @@ Theading
 Hygene
   move sideeffect out of op and into node
     op shared between all nodes at address, should record sideeffect per execution
-
-  replace all methodDescriptors / methodSignature internally with methodreferences
-    reduce string duplication and parsing (split)
 
   smalivm shouldn't require trove
     remove arrays and regular lists / sets instead
@@ -95,8 +119,6 @@ During execution, the context has no awareness of the call stack. Knowing these 
   2.) contextualized exception throwing with stack trace
 * update - execution context of first op in method has callerContext and callerAddress, which can be traced back up to rebuild call stack
 
-
-what if?
   get stack trace, first element
   from inside a method that's being optimized from main
   the call stack *should* be ambiguous
@@ -125,8 +147,6 @@ invoke-static {v1}, Ldoes/not/exist;->howdy(Ljava/lang/Integer;)V
 assumeMaxUnknown for invokeop wont work for LocalInstance.isInitialized == false, add tests
 boolean isInitializing = methodDescriptor.contains(";-><init>(") && ((value instanceof UninitializedInstance));
 
-LocalTypes should not need to contain what kind of type they are?
-
 test aput for non-Number values, e.g. boolean and character into an int array, but see if dalvik handles it properly first
 
 
@@ -148,7 +168,6 @@ unhandled exception + finally test
 handled exception + finally test
   throw exception, handle it, make sure finally value set
 
-
 consider unit testing
   exceptionhandlerresolver - build unit with public method to resolve addresses given an
     exception
@@ -156,12 +175,7 @@ consider unit testing
     try catch blocks
 
 
-catch unhandled virtual exceptions in invokeop
-set THOSE as the exceptions, clear children, return
-make notes saying that just because eomething is unhandled doesn't mean if there's an actual context for a method instead of just starting it at the root then it might be a handled exception
-
-
 Success stories:
   * java -jar build/libs/simplify.jar sandbox/6247332 -it 'Configs;-><clinit>'
-  * java -Xmx6g -jar build/libs/simplify.jar sandbox/7958300/smali -it '/smv;'
+  * java -Xmx6g -jar build/libs/simplify.jar sandbox/e99dd3229dc9ff70f6e768342ca27d984e796f1a -it '/smv;'
   * java -jar build/libs/simplify.jar sandbox/8748278/ -it Acgt -v

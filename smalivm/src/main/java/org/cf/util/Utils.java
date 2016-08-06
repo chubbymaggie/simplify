@@ -4,6 +4,14 @@ import gnu.trove.list.TIntList;
 import gnu.trove.list.array.TIntArrayList;
 import gnu.trove.map.TIntObjectMap;
 
+import org.apache.commons.lang3.ClassUtils;
+import org.cf.smalivm.context.HeapItem;
+import org.cf.smalivm.dex.CommonTypes;
+import org.jf.dexlib2.builder.BuilderInstruction;
+import org.jf.dexlib2.builder.MethodLocation;
+import org.jf.dexlib2.writer.builder.BuilderTypeList;
+import org.jf.dexlib2.writer.builder.BuilderTypeReference;
+
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Array;
@@ -17,14 +25,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import org.apache.commons.lang3.ClassUtils;
-import org.cf.smalivm.context.HeapItem;
-import org.cf.smalivm.type.UnknownValue;
-import org.jf.dexlib2.builder.BuilderInstruction;
-import org.jf.dexlib2.builder.MethodLocation;
-import org.jf.dexlib2.writer.builder.BuilderTypeList;
-import org.jf.dexlib2.writer.builder.BuilderTypeReference;
+import java.util.stream.Collectors;
 
 public class Utils {
 
@@ -36,8 +37,8 @@ public class Utils {
         return buildArray(internalName, length, Utils.class.getClassLoader());
     }
 
-    public static Object buildArray(String internalName, int length, ClassLoader classLoader)
-                    throws ClassNotFoundException {
+    public static Object buildArray(String internalName, int length,
+                                    ClassLoader classLoader) throws ClassNotFoundException {
         String baseClassName = ClassNameUtils.getComponentBase(internalName);
         String binaryName = ClassNameUtils.internalToBinary(baseClassName);
 
@@ -50,28 +51,19 @@ public class Utils {
     }
 
     public static List<String> builderTypeListToTypeNames(BuilderTypeList typeList) {
-        List<String> typeNames = new LinkedList<String>();
-        for (BuilderTypeReference type : typeList) {
-            typeNames.add(type.getType());
-        }
-
-        return typeNames;
+        return typeList.stream().map(BuilderTypeReference::getType).collect(Collectors.toCollection(LinkedList::new));
     }
 
     public static String buildFieldDescriptor(Field field) {
         String className = ClassNameUtils.toInternal(field.getDeclaringClass());
         String typeName = ClassNameUtils.toInternal(field.getType());
-        StringBuilder sb = new StringBuilder(className);
-        sb.append("->").append(field.getName()).append(':').append(typeName);
 
-        return sb.toString();
+        return className + "->" + field.getName() + ':' + typeName;
     }
 
     public static Object castToPrimitive(Object value, String targetType) {
-        // TODO: add tests for this + confirm dalvik works this way
-
         // Type information is not always available beyond "const" because Dalvik handles multiple types like integers.
-        // This is to make easier the casting of that number to the correct type.
+        // This is to make easier the casting of that number to the correct virtual.
         if (value instanceof Number) {
             Number castValue = (Number) value;
             if ("B".equals(targetType) || "Ljava/lang/Byte;".equals(targetType)) {
@@ -89,7 +81,7 @@ public class Utils {
             } else if ("C".equals(targetType) || "Ljava/lang/Character;".equals(targetType)) {
                 return (char) castValue.intValue();
             } else if ("Z".equals(targetType) || "Ljava/lang/Boolean;".equals(targetType)) {
-                return castValue.intValue() != 0 ? true : false;
+                return castValue.intValue() != 0;
             }
         } else if (value instanceof Boolean) {
             Boolean castValue = (Boolean) value;
@@ -106,7 +98,7 @@ public class Utils {
             Character castValue = (Character) value;
             Integer intValue = (int) castValue;
             if ("Z".equals(targetType) || "Ljava/lang/Boolean;".equals(targetType)) {
-                return (int) castValue != 0 ? true : false;
+                return (int) castValue != 0;
             } else if ("B".equals(targetType) || "Ljava/lang/Byte;".equals(targetType)) {
                 return intValue.byteValue();
             } else if ("I".equals(targetType) || "Ljava/lang/Integer;".equals(targetType)) {
@@ -142,13 +134,13 @@ public class Utils {
     }
 
     public static Double getDoubleValue(Object obj) {
-        Double doubleValue = (Double) castToPrimitive(obj, "Ljava/lang/Double;");
+        Double doubleValue = (Double) castToPrimitive(obj, CommonTypes.DOUBLE_OBJ);
 
         return doubleValue;
     }
 
     public static List<File> getFilesWithSmaliExtension(File file) {
-        final List<File> files = new LinkedList<File>();
+        final List<File> files = new LinkedList<>();
         if (file.isDirectory()) {
             try {
                 java.nio.file.Files.walk(file.toPath()).forEach(filePath -> {
@@ -161,7 +153,7 @@ public class Utils {
             } catch (IOException e) {
                 e.printStackTrace();
             }
-        } else if (file.getAbsolutePath().toLowerCase().endsWith(".smali")) {
+        } else if (file.getAbsolutePath().toLowerCase().endsWith(".local")) {
             files.add(file);
         }
 
@@ -169,18 +161,18 @@ public class Utils {
     }
 
     public static Float getFloatValue(Object obj) {
-        Float floatValue = (Float) castToPrimitive(obj, "Ljava/lang/Float;");
+        Float floatValue = (Float) castToPrimitive(obj, CommonTypes.FLOAT_OBJ);
 
         return floatValue;
     }
 
     public static Integer getIntegerValue(Object obj) {
-        Integer intValue = (Integer) castToPrimitive(obj, "Ljava/lang/Integer;");
+        Integer intValue = (Integer) castToPrimitive(obj, CommonTypes.INTEGER_OBJ);
 
         return intValue;
     }
 
-    public static final MethodLocation[] getLocations(BuilderInstruction... instructions) {
+    public static MethodLocation[] getLocations(BuilderInstruction... instructions) {
         MethodLocation[] locations = new MethodLocation[instructions.length];
         for (int i = 0; i < locations.length; i++) {
             locations[i] = instructions[i].getLocation();
@@ -190,13 +182,13 @@ public class Utils {
     }
 
     public static Long getLongValue(Object obj) {
-        Long longValue = (Long) castToPrimitive(obj, "Ljava/lang/Long;");
+        Long longValue = (Long) castToPrimitive(obj, CommonTypes.LONG_OBJ);
 
         return longValue;
     }
 
     public static MethodLocation getNextLocation(MethodLocation location,
-                    TIntObjectMap<MethodLocation> addressToLocation) {
+                                                 TIntObjectMap<MethodLocation> addressToLocation) {
         int address = location.getCodeAddress();
         int nextAddress = address + location.getInstruction().getCodeUnits();
 
@@ -206,13 +198,12 @@ public class Utils {
     /**
      * Determine parameter types by parsing the method descriptor.
      * Note: For local methods, there's ClassManager#getParameterTypes.
-     * 
-     * @param methodDescriptor
+     *
      * @return list of parameter types in internal form
      */
     public static List<String> getParameterTypes(String methodDescriptor) {
         Matcher m = PARAMETER_ISOLATOR.matcher(methodDescriptor);
-        List<String> result = new ArrayList<String>();
+        List<String> result = new ArrayList<>();
         if (m.find()) {
             String params = m.group();
             m = PARAMETER_INDIVIDUATOR.matcher(params);
@@ -242,19 +233,15 @@ public class Utils {
     }
 
     public static int getRegisterSize(String typeName) {
-        return "J".equals(typeName) || "D".equals(typeName) ? 2 : 1;
+        return CommonTypes.LONG.equals(typeName) || CommonTypes.DOUBLE.equals(typeName) ? 2 : 1;
     }
 
-    public static Set<String> getTypes(HeapItem item) {
-        Set<String> types = new HashSet<String>();
-        String declaredType = item.getType();
-        types.add(declaredType);
+    public static Set<String> getDeclaredAndValueTypeNames(HeapItem item) {
+        Set<String> types = new HashSet<>(3);
+        types.add(item.getType());
 
         Object value = item.getValue();
-        if (value instanceof UnknownValue) {
-            // Can't imply type from value
-        } else if (value != null) {
-            // All other value classes should be the actual classes
+        if (!item.isUnknown() && value != null) {
             types.add(ClassNameUtils.toInternal(value.getClass()));
         }
 

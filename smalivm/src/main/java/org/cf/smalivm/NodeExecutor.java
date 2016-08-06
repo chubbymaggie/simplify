@@ -2,9 +2,8 @@ package org.cf.smalivm;
 
 import org.cf.smalivm.context.ExecutionGraph;
 import org.cf.smalivm.context.ExecutionNode;
-import org.cf.smalivm.exception.UnhandledVirtualException;
 import org.cf.smalivm.opcode.Op;
-import org.cf.smalivm.smali.ClassManager;
+import org.cf.smalivm.type.ClassManager;
 import org.jf.dexlib2.builder.MethodLocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,36 +20,12 @@ public class NodeExecutor {
         exceptionResolver = new ExceptionHandlerAddressResolver(classManager, graph.getMethod());
     }
 
-    public void execute(ExecutionNode node) throws UnhandledVirtualException {
-        if (log.isDebugEnabled()) {
-            Op op = node.getOp();
-            log.debug("Handling @{}: {}\nContext before:\n{}", op.getAddress(), op, node.getContext());
-        }
-
-        try {
-            node.execute();
-        } catch (Exception e) {
-            // These exceptions are likely from simplify and not real.
-            // TODO: this exception handler should be re-examined when ops set exceptions properly
-            if (log.isWarnEnabled()) {
-                log.warn("{} threw a real exception:", node, e);
-            }
-            int childAddress = exceptionResolver.resolve(e, node.getAddress());
-            spawnChild(graph, node, childAddress);
-        }
-
-        spawnChildren(graph, node);
-        spawnExceptionChildren(graph, node, exceptionResolver);
-
-        if (log.isDebugEnabled()) {
-            log.debug("Context after:\n{}", node.getContext());
-        }
-    }
-
-    private static void spawnChild(ExecutionGraph graph, ExecutionNode parentNode, int childAddress) {
+    private static ExecutionNode spawnChild(ExecutionGraph graph, ExecutionNode parentNode, int childAddress) {
         Op childOp = graph.getTemplateNode(childAddress).getOp();
         ExecutionNode childNode = parentNode.spawnChild(childOp);
         graph.addNode(childNode);
+
+        return childNode;
     }
 
     private static void spawnChildren(ExecutionGraph graph, ExecutionNode parentNode) {
@@ -62,15 +37,18 @@ public class NodeExecutor {
     }
 
     private static void spawnExceptionChildren(ExecutionGraph graph, ExecutionNode node,
-                    ExceptionHandlerAddressResolver exceptionResolver) throws UnhandledVirtualException {
+                                               ExceptionHandlerAddressResolver exceptionResolver) throws UnhandledVirtualException {
         if (node.mayThrowException()) {
-            for (VirtualException exception : node.getExceptions()) {
+            for (Throwable exception : node.getExceptions()) {
                 if (log.isTraceEnabled()) {
                     log.trace("{} may throw virtual exception: {}", node, exception);
                 }
 
                 int childAddress = exceptionResolver.resolve(exception, node.getAddress());
-                if (childAddress == -1) {
+                if (childAddress >= 0) {
+                    ExecutionNode childNode = spawnChild(graph, node, childAddress);
+                    childNode.getContext().getMethodState().assignExceptionRegister(exception);
+                } else {
                     if (node.getChildLocations().length == 0) {
                         if (log.isErrorEnabled()) {
                             // No children, probably a real exception
@@ -84,10 +62,46 @@ public class NodeExecutor {
                             log.trace("{} possible unhandled virtual exception: {}", node, exception);
                         }
                     }
-                } else {
-                    spawnChild(graph, node, childAddress);
                 }
             }
+        }
+    }
+
+    public void execute(ExecutionNode node) throws UnhandledVirtualException {
+        if (log.isDebugEnabled()) {
+            Op op = node.getOp();
+            log.debug("Handling @{}: {}\nContext before:\n{}", op.getAddress(), op, node.getContext());
+        }
+
+        try {
+            node.execute();
+        } catch (Exception e) {
+            /*
+             * Virtual exceptions should be set when appropriate by the ops. Getting an exception could mean there is
+             * either a bug in smalivm (possible!) or the op just didn't take into account an exceptional situation,
+             * such as a null pointer.
+             * TODO: This should be re-examined when ops set exceptions properly.
+             */
+            //e.printStackTrace();
+            int childAddress = exceptionResolver.resolve(e, node.getAddress());
+            if (childAddress <= 0) {
+                throw new RuntimeException("Real exception was thrown executing " + node +
+                                           " and was not handled. This could be a bug in smalivm.\nException:", e);
+            } else {
+                if (log.isWarnEnabled()) {
+                    log.warn("{} threw a real exception but was caught by an exception handler. It's not possible to " +
+                             "" + "know if it's a bug in target code or in smalivm. Exception: {}", node, e);
+
+                }
+            }
+            spawnChild(graph, node, childAddress);
+        }
+
+        spawnChildren(graph, node);
+        spawnExceptionChildren(graph, node, exceptionResolver);
+
+        if (log.isDebugEnabled()) {
+            log.debug("Context after:\n{}", node.getContext());
         }
     }
 
